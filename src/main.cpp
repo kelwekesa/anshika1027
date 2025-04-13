@@ -1,11 +1,14 @@
 #include <algorithm>
-#include <vector>
+#include <iostream>
 #include <fstream>
 #include <iomanip>
+#include <vector>
+#include <thread>
 
-#include "InputParser.h"
 #include "Cache.h"
+#include "InputParser.h"
 #include "utility.h"
+#include "Bbus.h"
 
 std::string appName;
 uint32_t S;
@@ -62,21 +65,37 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  std::cout << std::setw(27) << std::right << "L1 CACHE SIMULATION\n"
+  std::cout << std::setw(27) << std::right << "Simulation Parameters:\n"
             << std::endl;
-  std::cout << std::setw(23) << std::left << "appName: " << appName
+  std::cout << std::setw(29) << std::left << "  Trace Prefix: " << appName
             << std::endl;
-  std::cout << std::setw(23) << std::left << "set index bits: " << S
+  std::cout << std::setw(29) << std::left << "  Set index bits: " << S
             << std::endl;
-  std::cout << std::setw(23) << std::left << "number of block bits: " << B
+  std::cout << std::setw(29) << std::left << "  Associativity: " << E
             << std::endl;
-  std::cout << std::setw(23) << std::left << "associativity: " << E
+  std::cout << std::setw(29) << std::left << "  Block bits: " << B << std::endl;
+  std::cout << std::setw(29) << std::left << "  Block Size (Bytes): " << (1 << B)
             << std::endl;
-  std::cout << std::setw(23) << std::left << "logFile: " << logFile
+  std::cout << std::setw(29) << std::left << "  Number of Sets: " << (1 << S)
             << std::endl;
-  std::cout << std::setw(23) << std::left << "tracesFolder: " << tracesFolder
+  std::cout << std::setw(29) << std::left
+            << "  Cache Size (KB per core): " << (1 << S) * (1 << B) * E / 1024
             << std::endl;
- 
+  std::cout << std::setw(29) << std::left
+            << "  MESI Protocol: " << "Enabled" << std::endl;
+  std::cout << std::setw(29) << std::left
+            << "  Write Policy: " << "Write-back, Write-allocate" << std::endl;
+  std::cout << std::setw(29) << std::left
+            << "  Replacement Policy: " << "LRU" << std::endl;
+  std::cout << std::setw(29) << std::left
+            << "  Bus: " << "Central snooping bus" << std::endl;
+
+  std::cout << std::setw(29) << std::left << "  logFile: " << logFile
+            << std::endl;
+  std::cout << std::setw(29) << std::left << "  tracesFolder: " << tracesFolder
+            << std::endl;
+
+  std::cout << std::endl;
   // open traces
   std::vector<std::ifstream> traces;
   for (int i = 0; i < 4; ++i) {
@@ -85,29 +104,60 @@ int main(int argc, char **argv) {
     std::ifstream trace{filename};
     if (trace) {
       traces.push_back(std::move(trace));
-      std::cout << "" << filename << std::endl;
+      std::cout << "  " << filename << std::endl;
     } else {
       std::cout << "failed to open tracefile: " << filename << std::endl;
       return EXIT_FAILURE;
     }
   }
-  // process a file
-  uint32_t addr;
-  std::string rw;
+  
   uint32_t no_of_sets = 1 << S;
-  Cache cache{E, no_of_sets};
-  while (traces[0] >> rw >> std::hex >> addr) {
+  uint32_t blocksize = 1 << B;
 
-    uint32_t set_mask = create_mask(B, B+S);
-    uint32_t set_number = (addr & set_mask) >> B;
+  Bbus bus{};
 
-    uint32_t tag_mask = create_mask(B+S, 31);
-    uint32_t tag = (addr & tag_mask) >> (B + S);
+  Cache cache0{E, no_of_sets, blocksize, &bus};
+  Cache cache1{E, no_of_sets, blocksize, &bus};
+  Cache cache2{E, no_of_sets, blocksize, &bus};
+  Cache cache3{E, no_of_sets, blocksize, &bus};
 
-    cache.access(tag, set_number, rw);
-    // break;
+  bus.add_cache(&cache0);
+  bus.add_cache(&cache1);
+  bus.add_cache(&cache2);
+  bus.add_cache(&cache3);
+
+  auto core = [](auto trace, auto cache) {
+    // process a file
+    uint32_t addr;
+    std::string rw;
+
+    uint32_t set_mask = create_mask(B, B + S);
+    uint32_t tag_mask = create_mask(B + S, 31);
+    while (trace >> rw >> std::hex >> addr) {
+       uint32_t set_number = (addr & set_mask) >> B;
+       uint32_t tag = (addr & tag_mask) >> (B + S);
+
+      if (rw == "R") {
+       cache->PrRd(tag, set_number);
+      } else {
+       cache->PrWr(tag, set_number);
+      }
+    }
+  };
+
+  std::vector<std::thread> processor;
+
+  for (size_t i = 0; i < traces.size(); ++i) {
+    std::cout << "  thread " << i << std::endl;
+    processor.push_back(
+        std::thread{core, std::move(traces[i]), bus.caches()[i]});
+  }
+
+  std::cout << std::endl;
+
+  for (auto&& core : processor){
+    core.join();
   }
   
-  std::cout << "hits: " << cache.hits() << std::endl;
   return EXIT_SUCCESS;
 }

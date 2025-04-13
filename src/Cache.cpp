@@ -1,75 +1,57 @@
 #include "Cache.h"
-#include <algorithm>
+#include "Bbus.h"
 
-Cache::Cache(uint32_t assosiativity, uint32_t setnum/*, uint32_t blocksize*/) {
+#include <algorithm>
+#include <iostream>
+
+Cache::Cache(uint32_t assosiativity, uint32_t setnum, uint32_t blocksize, Bbus * b) {
+  bus = b;
   no_of_sets = setnum;
   cache_lines = assosiativity;
+  block_size = blocksize / 4;
   hit = 0;
+  busIndex = -1;
+  clock = 0;
   //
   cache.resize(no_of_sets, std::vector<Memory>(
-                               cache_lines, {0, std::clock()}));
+                               cache_lines, {-1, std::clock()}));
 }
 
-bool Cache::exists(uint32_t tag, uint32_t set_number){
-  std::vector<Memory> &bucket = cache[set_number];
-  // search bucket for slot
-  auto iter = std::find_if(bucket.begin(), bucket.end(),
-                           [&](auto &addr) { return addr.get_tag() == tag; });
-  //
-  return iter != bucket.end();
+std::pair<uint32_t, uint32_t> Cache::hits_clock(){
+  return std::make_pair(hit, clock);
 }
 
-bool Cache::get(uint32_t tag, uint32_t set_number) {
+int Cache::empty_slot(uint32_t set_number) {
   std::vector<Memory> &bucket = cache[set_number];
-  // search bucket for slot
-  auto iter = std::find_if(bucket.begin(), bucket.end(),
-                           [&](auto &addr) { return addr.get_tag() == tag; });
+  auto iter = std::find_if(bucket.begin(), bucket.end(), [&](auto &addr) {
+    return addr.get_tag() == -1 || addr.get_state() == MESI::Invalid;
+  });
   if (iter != bucket.end()) {
-    // update time
-    iter->set_time(std::clock());
-    // hit
-    hit ++;
-    return true;
+    return std::distance(bucket.begin(), iter);
   }
-  // miss !
-  return false;
+  return -1;
 }
 
-void Cache::access(uint32_t tag, uint32_t set_number, const std::string& rw) {
+int Cache::LRU(uint32_t set_number) {
+
   std::vector<Memory> &bucket = cache[set_number];
-  // check for empty slot
-  auto iter = std::find_if(bucket.begin(), bucket.end(),
-                           [&](auto &addr) { return addr.get_tag() == tag; });
-  if (iter != bucket.end()) {
-    // hit
-    hit ++;
-    iter->set_time(std::clock());
-    if (rw == "W"){
-      iter->set_dirty();
-    }
-  } else {
-    // miss
-    /* we have to evict */
-    // sort the bucket according to time
-    std::sort(bucket.begin(), bucket.end(), [](auto addr1, auto addr2) {
-      return addr1.get_time() < addr2.get_time();
-    });
-    // evict the last item in bucket
-    Memory evicted = bucket[bucket.size()-1];
-    if (evicted.is_dirty()){
-      /* 100 clock cycles */
-    }
-    bucket.pop_back();
-    // give this one
-    Memory mem{tag, std::clock()};
-    if (rw == "W"){
-      mem.set_dirty();
-    }
-    bucket.push_back(mem);
+  // item with the least clock value
+  auto iter = std::min_element(
+      bucket.begin(), bucket.end(),
+      [](auto a, auto b) { return a.get_time() < b.get_time(); });
+  if (iter->get_state() == MESI::Modified){
+    // if it has modified state
+    // we need to write it back
+    clock += 100;
+    bus->Flush(iter->get_tag(), set_number);
   }
+  return std::distance(bucket.begin(), iter);
 }
 
 void Cache::PrRd(uint32_t tag, uint32_t set_number){
+
+  std::cout << std::hex << tag << std::endl;
+
   std::lock_guard<std::mutex> guard(mutex);
   std::vector<Memory> &bucket = cache[set_number];
   auto iter = std::find_if(bucket.begin(), bucket.end(),
@@ -81,22 +63,45 @@ void Cache::PrRd(uint32_t tag, uint32_t set_number){
   }
   switch (state) {
     case MESI::Invalid: {
-      bus.BusRd(busIndex);
+      // we require a fresh slot anyway
+      int index = empty_slot(set_number);
+      if (index == -1) {
+        // we have to evict
+        // memory with smallest clock cycle
+        index = LRU(set_number);
+      }
+      // check if other cores have this line
+      std::vector<int> res = bus->BusRd(tag, set_number, busIndex);
+      if (std::any_of(res.begin(), res.end(),
+                      [](auto r) { return r != -1; })) {
+        // one of the cores has a copy 
+        bucket[index] = Memory{tag, std::clock()};
+        bucket[index].set_state(MESI::Shared);
+        clock += (2 * block_size);
+        //hit ++;
+      }else{
+        // none has a copy
+        // pull from main memory
+        bucket[index] = Memory{tag, std::clock()};
+        bucket[index].set_state(MESI::Exclusive);
+        // since we pulled from memory
+        clock += 100;
+
+      }
       break;
     }
-    case MESI::Modified: {
-      break;
-    }
-    case MESI::Exclusive: {
-      break;
-    }
+    case MESI::Modified:
+    case MESI::Exclusive:
     case MESI::Shared: {
-      break;
+      hit ++;
     }
   }
 }
 
 void Cache::PrWr(uint32_t tag , uint32_t set_number){
+
+  std::cout << std::hex << tag << std::endl;
+
   std::lock_guard<std::mutex> guard(mutex);
   std::vector<Memory> &bucket = cache[set_number];
   auto iter = std::find_if(bucket.begin(), bucket.end(),
@@ -108,21 +113,48 @@ void Cache::PrWr(uint32_t tag , uint32_t set_number){
   }
   switch (state) {
     case MESI::Invalid: {
+      // we require a fresh slot anyway
+      int index = empty_slot(set_number);
+      if (index == -1) {
+        // we have to evict
+        // memory with smallest clock cycle
+        index = LRU(set_number);
+      }
+      // check if other cores have this line
+      std::vector<int> res = bus->BusRdX(tag, set_number, busIndex);
+      if (std::any_of(res.begin(), res.end(),
+                      [](auto r) { return r != -1; })) {
+        // one of the cores has a copy 
+        bucket[index] = Memory{tag, std::clock()};
+        bucket[index].set_state(MESI::Modified);
+        clock += (2 * block_size);
+        //hit ++;
+      }else{
+        // pull copy from main memory
+        bucket[index] = Memory{tag, std::clock()};
+        bucket[index].set_state(MESI::Modified);
+        clock += 100;
+      }
       break;
     }
-    case MESI::Modified: {
-      break;
-    }
+    case MESI::Modified: 
     case MESI::Exclusive: {
+      hit ++;
+      iter->set_state(MESI::Modified);
       break;
     }
     case MESI::Shared: {
+      // check if other cores have this line
+      // ask them to mark it as invalid
+      bus->BusUpgr(tag, set_number);
+      // change state to modified
+      iter->set_state(MESI::Modified);
       break;
     }
   }
 }
 
-void Cache::BusRd(uint32_t tag, uint32_t set_number){
+int Cache::BusRd(uint32_t tag, uint32_t set_number){
   std::lock_guard<std::mutex> guard(mutex);
   std::vector<Memory> &bucket = cache[set_number];
   auto iter = std::find_if(bucket.begin(), bucket.end(),
@@ -134,21 +166,29 @@ void Cache::BusRd(uint32_t tag, uint32_t set_number){
   }
   switch (state) {
     case MESI::Invalid: {
+      return -1;
       break;
     }
     case MESI::Modified: {
+      iter->set_state(MESI::Shared);
+      return 1;
       break;
     }
     case MESI::Exclusive: {
+      iter->set_state(MESI::Shared);
+      return 1;
       break;
     }
     case MESI::Shared: {
+      return 1;
       break;
     }
   }
+  return -1;
 }
-void Cache::BusRdX(uint32_t tag, uint32_t set_number){
-std::lock_guard<std::mutex> guard(mutex);
+
+int Cache::BusRdX(uint32_t tag, uint32_t set_number){
+  std::lock_guard<std::mutex> guard(mutex);
   std::vector<Memory> &bucket = cache[set_number];
   auto iter = std::find_if(bucket.begin(), bucket.end(),
                            [&](auto &addr) { return addr.get_tag() == tag; });
@@ -159,22 +199,30 @@ std::lock_guard<std::mutex> guard(mutex);
   }
   switch (state) {
     case MESI::Invalid: {
+      return -1;
       break;
     }
     case MESI::Modified: {
+      iter->set_state(MESI::Invalid);
+      return 1;
       break;
     }
     case MESI::Exclusive: {
+      iter->set_state(MESI::Invalid);
+      return 1;
       break;
     }
     case MESI::Shared: {
+      iter->set_state(MESI::Invalid);
+      return 1;
       break;
     }
   }
+  return -1;
 }
 
 void Cache::BusUpgr(uint32_t tag, uint32_t set_number){
-std::lock_guard<std::mutex> guard(mutex);
+  std::lock_guard<std::mutex> guard(mutex);
   std::vector<Memory> &bucket = cache[set_number];
   auto iter = std::find_if(bucket.begin(), bucket.end(),
                            [&](auto &addr) { return addr.get_tag() == tag; });
@@ -184,30 +232,37 @@ std::lock_guard<std::mutex> guard(mutex);
     state = iter->get_state();
   }
   switch (state) {
-    case MESI::Invalid: {
-      break;
-    }
-    case MESI::Modified: {
-      break;
-    }
-    case MESI::Exclusive: {
-      break;
-    }
+    case MESI::Invalid: 
+    case MESI::Modified: 
+    case MESI::Exclusive: 
     case MESI::Shared: {
+      iter->set_state(MESI::Invalid);
       break;
     }
   }
 }
 
 
-void Cache::Flush(uint32_t, uint32_t){
-
+void Cache::Flush(uint32_t tag, uint32_t set_number){
+  // std::lock_guard<std::mutex> guard(mutex);
+  std::vector<Memory> &bucket = cache[set_number];
+  auto iter = std::find_if(bucket.begin(), bucket.end(),
+                           [&](auto &addr) { return addr.get_tag() == tag; });
+  // has been written back to main memory
+  // therefore invalidate it
+  iter->set_state(MESI::Invalid);
+  iter->set_tag(-1);
 }
 
-void Cache::FlushOpt(uint32_t, uint32_t){
-
+void Cache::FlushOpt(uint32_t , uint32_t ){
+  /*
+  std::lock_guard<std::mutex> guard(mutex);
+  std::vector<Memory> &bucket = cache[set_number];
+  auto iter = std::find_if(bucket.begin(), bucket.end(),
+                           [&](auto &addr) { return addr.get_tag() == tag; });
+  */
+  // has been written back to main memory
+  // therefore invalidate it
+  // iter->set_state(MESI::Shared);
 }
 
-uint32_t Cache::hits(){
-  return hit;
-}
