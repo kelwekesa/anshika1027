@@ -27,16 +27,18 @@ project
 ```
 
 ### how to compile
-make clean
-make
+`$ make clean`  
+`$ make`    
 ### how to run
-cd bin
-./L1simulate -t app1 -s 4 -E 4 -b 8 -o logfile.txt    
+`$ cd bin`    
+`$ ./L1simulate -t app1 -s 4 -E 4 -b 8 -o logfile.txt`    
 
 :scream: please note that the traces **MUST** be placed in a folder called traces in the root folder
 
 ## Discussion
 
+The MESI protocol is an invalidate-based cache coherence protocol    
 
-
+Write-back caching is a technique where data is first written to a cache,      
+and the actual write to the backing store (like main memory or disk) is delayed until a later time
 
