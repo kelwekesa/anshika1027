@@ -30,10 +30,6 @@ Cache::Cache(uint32_t assosiativity, uint32_t setnum, uint32_t blocksize,
   
 }
 
-std::pair<uint32_t, uint32_t> Cache::hits_clock() {
-  return std::make_pair(hit, cycles);
-}
-
 int Cache::empty_slot(uint32_t set_number) {
   std::vector<Memory> &bucket = cache[set_number];
   auto iter = std::find_if(bucket.begin(), bucket.end(), [&](auto &addr) {
@@ -63,7 +59,8 @@ int Cache::LRU(uint32_t set_number) {
 }
 
 void Cache::PrRd(uint32_t tag, uint32_t set_number) {
-  //std::cout << std::hex << tag << std::endl;
+  // The processor requests to read a Cache block.
+  
   reads ++;
   total_instrs ++;
 
@@ -97,7 +94,8 @@ void Cache::PrRd(uint32_t tag, uint32_t set_number) {
         bucket[index].set_time(std::clock());
         bucket[index].set_state(MESI::Shared);
         cycles += (2 * block_size);
-        // hit ++;
+        //hit ++;
+        idle_cycles += (2 * block_size);
       } else {
         // none has a copy
         // pull from main memory
@@ -106,6 +104,7 @@ void Cache::PrRd(uint32_t tag, uint32_t set_number) {
         bucket[index].set_state(MESI::Exclusive);
         // since we pulled from memory
         cycles += 100;
+        idle_cycles += 100;
       }
       break;
     }
@@ -119,7 +118,8 @@ void Cache::PrRd(uint32_t tag, uint32_t set_number) {
 }
 
 void Cache::PrWr(uint32_t tag, uint32_t set_number) {
-  //std::cout << std::hex << tag << std::endl;
+  // The processor requests to write a Cache block
+  
   writes ++;
   total_instrs ++;
   //std::lock_guard<std::mutex> guard{mutex};
@@ -183,7 +183,9 @@ void Cache::PrWr(uint32_t tag, uint32_t set_number) {
 }
 
 int Cache::BusRd(uint32_t tag, uint32_t set_number) {
-  // std::lock_guard<std::mutex> guard(mutex);
+  // Snooped request that indicates there is a read request to a Cache block
+  // requested by another processor std::lock_guard<std::mutex> guard(mutex);
+
   mutex.lock();
   std::vector<Memory> &bucket = cache[set_number];
   auto iter = std::find_if(bucket.begin(), bucket.end(),
@@ -192,25 +194,15 @@ int Cache::BusRd(uint32_t tag, uint32_t set_number) {
   MESI state = MESI::Invalid;
   if (iter != bucket.end()) {
     state = iter->get_state();
-  } 
+  }
   switch (state) {
     case MESI::Invalid: {
       mutex.unlock();
       return -1;
       break;
     }
-    case MESI::Modified: {
-      iter->set_state(MESI::Shared);
-      mutex.unlock();
-      return 1;
-      break;
-    }
-    case MESI::Exclusive: {
-      iter->set_state(MESI::Shared);
-      mutex.unlock();
-      return 1;
-      break;
-    }
+    case MESI::Modified:
+    case MESI::Exclusive:
     case MESI::Shared: {
       mutex.unlock();
       return 1;
@@ -222,7 +214,9 @@ int Cache::BusRd(uint32_t tag, uint32_t set_number) {
 }
 
 int Cache::BusRdX(uint32_t tag, uint32_t set_number) {
-  // std::lock_guard<std::mutex> guard(mutex);
+  // Snooped request that indicates there is a write request to a Cache block
+  // requested by another processor that doesn't already have the block.
+  
   mutex.lock();
   std::vector<Memory> &bucket = cache[set_number];
   auto iter = std::find_if(bucket.begin(), bucket.end(),
@@ -231,30 +225,19 @@ int Cache::BusRdX(uint32_t tag, uint32_t set_number) {
   MESI state = MESI::Invalid;
   if (iter != bucket.end()) {
     state = iter->get_state();
-  } 
+  }
   switch (state) {
     case MESI::Invalid: {
       mutex.unlock();
       return -1;
-      break;
     }
-    case MESI::Modified: {
-      iter->set_state(MESI::Invalid);
-      mutex.unlock();
-      return 1;
-      break;
-    }
-    case MESI::Exclusive: {
-      iter->set_state(MESI::Invalid);
-      mutex.unlock();
-      return 1;
-      break;
-    }
+    case MESI::Modified:
+    case MESI::Exclusive:
     case MESI::Shared: {
+      invalidations ++;
       iter->set_state(MESI::Invalid);
       mutex.unlock();
       return 1;
-      break;
     }
   }
   mutex.unlock();
@@ -262,7 +245,10 @@ int Cache::BusRdX(uint32_t tag, uint32_t set_number) {
 }
 
 void Cache::BusUpgr(uint32_t tag, uint32_t set_number) {
-  // std::lock_guard<std::mutex> guard(mutex);
+  //  Snooped request that indicates that there is a write request to a Cache
+  //  block requested by another processor that already has that cache block
+  //  residing in its own cache.
+  
   mutex.lock();
   std::vector<Memory> &bucket = cache[set_number];
   auto iter = std::find_if(bucket.begin(), bucket.end(),
@@ -271,13 +257,14 @@ void Cache::BusUpgr(uint32_t tag, uint32_t set_number) {
   MESI state = MESI::Invalid;
   if (iter != bucket.end()) {
     state = iter->get_state();
-  } 
+  }
   switch (state) {
     case MESI::Invalid:
     case MESI::Modified:
     case MESI::Exclusive:
     case MESI::Shared: {
-      if (iter != bucket.end()){
+      if (iter != bucket.end()) {
+        invalidations ++;
         iter->set_state(MESI::Invalid);
       }
       break;
@@ -287,18 +274,20 @@ void Cache::BusUpgr(uint32_t tag, uint32_t set_number) {
 }
 
 void Cache::Flush(uint32_t tag, uint32_t set_number) {
-  // std::lock_guard<std::mutex> guard(mutex);
-  //mutex.lock();
+  // Snooped request that indicates that an entire cache block is written back
+  // to the main memory by another processor. std::lock_guard<std::mutex>
+  
   std::vector<Memory> &bucket = cache[set_number];
   auto iter = std::find_if(bucket.begin(), bucket.end(),
                            [&](auto &addr) { return addr.get_tag() == tag; });
   // has been written back to main memory
   // therefore invalidate it
   if (iter != bucket.end()) {
+    invalidations ++;
     iter->set_state(MESI::Invalid);
     iter->set_tag(-1);
   }
-  //mutex.unlock();
+ 
 }
 
 void Cache::FlushOpt(uint32_t, uint32_t) {

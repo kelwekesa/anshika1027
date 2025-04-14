@@ -45,7 +45,6 @@ class Cache {
 
   int empty_slot(uint32_t);
   int LRU(uint32_t);
-  std::pair<uint32_t, uint32_t> hits_clock();
 };
 
 #endif
