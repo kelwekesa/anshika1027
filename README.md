@@ -35,7 +35,7 @@ project
 
 :scream: please note that the traces **MUST** be placed in a folder called traces in the root folder
 
-## Discussion
+### Discussion
 
 The MESI protocol is an invalidate-based cache coherence protocol    
 
