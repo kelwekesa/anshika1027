@@ -3,8 +3,8 @@
 ### folder structure
 ```
 project
-│   README.md
-│   .gitignore
+│	README.md
+│	.gitignore
 |	CMakeLists.txt
 |	Makefile  
 │
