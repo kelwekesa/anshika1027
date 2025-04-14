@@ -172,12 +172,16 @@ int main(int argc, char** argv) {
               << std::endl;
     std::cout << std::setw(27) << std::right
               << "Total Execution Cycles: " << core->cycles << std::endl;
+    //
     std::cout << std::setw(27) << std::right << "Idle Cycles: " << core->reads
               << std::endl;
-    std::cout << std::setw(27) << std::right << "Cache Misses: " << core->reads
+    int64_t misses = (core->total_instrs - core->hit);
+    std::cout << std::setw(27) << std::right << "Cache Misses: " << misses
               << std::endl;
+    double miss_rate = (double)misses * 100 / core->total_instrs;
     std::cout << std::setw(27) << std::right
-              << "Cache Miss Rate: " << core->reads << std::endl;
+              << "Cache Miss Rate: " << std::fixed << std::setprecision(2)
+              << miss_rate << "%" << std::endl;
     std::cout << std::setw(27) << std::right
               << "Cache Evictions: " << core->evictions << std::endl;
     std::cout << std::setw(27) << std::right
@@ -185,7 +189,8 @@ int main(int argc, char** argv) {
     std::cout << std::setw(27) << std::right
               << "Bus Invalidations: " << core->invalidations << std::endl;
     std::cout << std::setw(27) << std::right
-              << "Data Traffic (Bytes): " << core->reads << std::endl;
+              << "Data Traffic (Bytes): " << core->total_instrs * blocksize
+              << std::endl;
     std::cout << std::endl;
   }
 
