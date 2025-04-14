@@ -1,14 +1,14 @@
 #include <algorithm>
-#include <iostream>
 #include <fstream>
 #include <iomanip>
-#include <vector>
+#include <iostream>
 #include <thread>
+#include <vector>
 
+#include "Bbus.h"
 #include "Cache.h"
 #include "InputParser.h"
 #include "utility.h"
-#include "Bbus.h"
 
 std::string appName;
 uint32_t S;
@@ -17,7 +17,7 @@ uint32_t E;
 std::string logFile;
 std::string tracesFolder = "../assignment3_traces/";
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   InputParser input(argc, argv);
   if (input.cmdOptionExists("-h")) {
     printHelp();
@@ -65,35 +65,36 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  std::cout << std::setw(27) << std::right << "Simulation Parameters:\n"
+  std::cout << std::setw(37) << std::right << "Simulation Parameters:\n"
             << std::endl;
-  std::cout << std::setw(29) << std::left << "  Trace Prefix: " << appName
+  std::cout << std::setw(27) << std::right << "Trace Prefix: " << appName
             << std::endl;
-  std::cout << std::setw(29) << std::left << "  Set index bits: " << S
+  std::cout << std::setw(27) << std::right << "Set index bits: " << S
             << std::endl;
-  std::cout << std::setw(29) << std::left << "  Associativity: " << E
+  std::cout << std::setw(27) << std::right << "Associativity: " << E
             << std::endl;
-  std::cout << std::setw(29) << std::left << "  Block bits: " << B << std::endl;
-  std::cout << std::setw(29) << std::left << "  Block Size (Bytes): " << (1 << B)
+  std::cout << std::setw(27) << std::right << "Block bits: " << B << std::endl;
+  std::cout << std::setw(27) << std::right << "Block Size (Bytes): " << (1 << B)
             << std::endl;
-  std::cout << std::setw(29) << std::left << "  Number of Sets: " << (1 << S)
+  std::cout << std::setw(27) << std::right << "Number of Sets: " << (1 << S)
             << std::endl;
-  std::cout << std::setw(29) << std::left
-            << "  Cache Size (KB per core): " << (1 << S) * (1 << B) * E / 1024
+  std::cout << std::setw(27) << std::right
+            << "Cache Size (KB per core): " << (1 << S) * (1 << B) * E / 1024
             << std::endl;
-  std::cout << std::setw(29) << std::left
-            << "  MESI Protocol: " << "Enabled" << std::endl;
-  std::cout << std::setw(29) << std::left
-            << "  Write Policy: " << "Write-back, Write-allocate" << std::endl;
-  std::cout << std::setw(29) << std::left
-            << "  Replacement Policy: " << "LRU" << std::endl;
-  std::cout << std::setw(29) << std::left
-            << "  Bus: " << "Central snooping bus" << std::endl;
-
+  std::cout << std::setw(27) << std::right << "MESI Protocol: " << "Enabled"
+            << std::endl;
+  std::cout << std::setw(27) << std::right
+            << "Write Policy: " << "Write-back, Write-allocate" << std::endl;
+  std::cout << std::setw(27) << std::right << "Replacement Policy: " << "LRU"
+            << std::endl;
+  std::cout << std::setw(27) << std::right << "Bus: " << "Central snooping bus"
+            << std::endl;
+  /*
   std::cout << std::setw(29) << std::left << "  logFile: " << logFile
             << std::endl;
   std::cout << std::setw(29) << std::left << "  tracesFolder: " << tracesFolder
             << std::endl;
+  */
 
   std::cout << std::endl;
   // open traces
@@ -104,13 +105,13 @@ int main(int argc, char **argv) {
     std::ifstream trace{filename};
     if (trace) {
       traces.push_back(std::move(trace));
-      std::cout << "  " << filename << std::endl;
+      // std::cout << "  " << filename << std::endl;
     } else {
       std::cout << "failed to open tracefile: " << filename << std::endl;
       return EXIT_FAILURE;
     }
   }
-  
+
   uint32_t no_of_sets = 1 << S;
   uint32_t blocksize = 1 << B;
 
@@ -134,13 +135,13 @@ int main(int argc, char **argv) {
     uint32_t set_mask = create_mask(B, B + S);
     uint32_t tag_mask = create_mask(B + S, 31);
     while (trace >> rw >> std::hex >> addr) {
-       uint32_t set_number = (addr & set_mask) >> B;
-       uint32_t tag = (addr & tag_mask) >> (B + S);
+      uint32_t set_number = (addr & set_mask) >> B;
+      uint32_t tag = (addr & tag_mask) >> (B + S);
 
       if (rw == "R") {
-       cache->PrRd(tag, set_number);
+        cache->PrRd(tag, set_number);
       } else {
-       cache->PrWr(tag, set_number);
+        cache->PrWr(tag, set_number);
       }
     }
   };
@@ -148,16 +149,52 @@ int main(int argc, char **argv) {
   std::vector<std::thread> processor;
 
   for (size_t i = 0; i < traces.size(); ++i) {
-    std::cout << "  thread " << i << std::endl;
+    // std::cout << "  thread " << i << std::endl;
     processor.push_back(
         std::thread{core, std::move(traces[i]), bus.caches()[i]});
   }
 
   std::cout << std::endl;
 
-  for (auto&& core : processor){
+  for (auto&& core : processor) {
     core.join();
   }
-  
+
+  for (size_t i = 0; i < bus.caches().size(); ++i) {
+    auto core = bus.caches()[i];
+    std::cout << std::setw(21) << std::right << "Core " << i
+              << " Statistics:" << std::endl;
+    std::cout << std::setw(27) << std::right
+              << "Total Instructions: " << core->total_instrs << std::endl;
+    std::cout << std::setw(27) << std::right << "Total Reads: " << core->reads
+              << std::endl;
+    std::cout << std::setw(27) << std::right << "Total Writes: " << core->writes
+              << std::endl;
+    std::cout << std::setw(27) << std::right
+              << "Total Execution Cycles: " << core->cycles << std::endl;
+    std::cout << std::setw(27) << std::right << "Idle Cycles: " << core->reads
+              << std::endl;
+    std::cout << std::setw(27) << std::right << "Cache Misses: " << core->reads
+              << std::endl;
+    std::cout << std::setw(27) << std::right
+              << "Cache Miss Rate: " << core->reads << std::endl;
+    std::cout << std::setw(27) << std::right
+              << "Cache Evictions: " << core->evictions << std::endl;
+    std::cout << std::setw(27) << std::right
+              << "Writebacks: " << core->writebacks << std::endl;
+    std::cout << std::setw(27) << std::right
+              << "Bus Invalidations: " << core->invalidations << std::endl;
+    std::cout << std::setw(27) << std::right
+              << "Data Traffic (Bytes): " << core->reads << std::endl;
+    std::cout << std::endl;
+  }
+
+  std::cout << std::setw(27) << std::right
+            << "Overall Bus Summary:" << std::endl;
+  std::cout << std::setw(27) << std::right << "Total Bus Transactions:" << ""
+            << std::endl;
+  std::cout << std::setw(27) << std::right << "Total Bus Traffic (Bytes):" << ""
+            << std::endl;
+
   return EXIT_SUCCESS;
 }

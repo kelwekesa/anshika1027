@@ -16,12 +16,21 @@ class Cache {
   uint32_t no_of_sets;
   uint32_t cache_lines;
   uint32_t block_size;
-  uint32_t hit;
   int busIndex;
-  int64_t clock;
-
 
  public:
+  //
+  int64_t cycles;
+  int64_t idle_cycles;
+  uint32_t hit;
+  int64_t total_instrs;
+  int64_t reads;
+  int64_t writes;
+  int64_t evictions;
+  int64_t writebacks;
+  int64_t invalidations;
+  int64_t data_traffic;
+  //
   Cache(uint32_t, uint32_t, uint32_t, Bbus *);
 
   void PrRd(uint32_t, uint32_t);
