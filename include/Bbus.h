@@ -9,6 +9,7 @@
 class Bbus{
   std::vector<Cache*> bus;
 public:  
+  int64_t bus_traffic;
   Bbus();
   uint32_t add_cache(Cache*);
   std::vector<int> BusRd(uint32_t, uint32_t, uint32_t);

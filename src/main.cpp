@@ -196,9 +196,11 @@ int main(int argc, char** argv) {
 
   std::cout << std::setw(27) << std::right
             << "Overall Bus Summary:" << std::endl;
-  std::cout << std::setw(27) << std::right << "Total Bus Transactions:" << ""
-            << std::endl;
-  std::cout << std::setw(27) << std::right << "Total Bus Traffic (Bytes):" << ""
+
+  std::cout << std::setw(27) << std::right
+            << "Total Bus Transactions: " << bus.bus_traffic << std::endl;
+  std::cout << std::setw(27) << std::right
+            << "Total Bus Traffic (Bytes): " << bus.bus_traffic * blocksize
             << std::endl;
 
   return EXIT_SUCCESS;
