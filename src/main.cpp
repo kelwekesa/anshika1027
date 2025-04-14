@@ -15,7 +15,7 @@ uint32_t S;
 uint32_t B;
 uint32_t E;
 std::string logFile;
-std::string tracesFolder = "../assignment3_traces/";
+std::string tracesFolder = "../traces/";
 
 int main(int argc, char** argv) {
   InputParser input(argc, argv);
