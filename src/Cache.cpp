@@ -94,7 +94,7 @@ void Cache::PrRd(uint32_t tag, uint32_t set_number) {
         bucket[index].set_time(std::clock());
         bucket[index].set_state(MESI::Shared);
         cycles += (2 * block_size);
-        //hit ++;
+        
         idle_cycles += (2 * block_size);
       } else {
         // none has a copy
@@ -152,7 +152,7 @@ void Cache::PrWr(uint32_t tag, uint32_t set_number) {
         bucket[index].set_time(std::clock());
         bucket[index].set_state(MESI::Modified);
         cycles += (2 * block_size);
-        // hit ++;
+       
       } else {
         // pull copy from main memory
         bucket[index].set_tag(tag);

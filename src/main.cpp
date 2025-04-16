@@ -4,6 +4,7 @@
 #include <iostream>
 #include <thread>
 #include <vector>
+#include <chrono>
 
 #include "Bbus.h"
 #include "Cache.h"
@@ -148,6 +149,8 @@ int main(int argc, char** argv) {
 
   std::vector<std::thread> processor;
 
+  auto start = std::chrono::high_resolution_clock::now();
+
   for (size_t i = 0; i < traces.size(); ++i) {
     // std::cout << "  thread " << i << std::endl;
     processor.push_back(
@@ -159,6 +162,8 @@ int main(int argc, char** argv) {
   for (auto&& core : processor) {
     core.join();
   }
+
+  auto stop = std::chrono::high_resolution_clock::now();
 
   for (size_t i = 0; i < bus.caches().size(); ++i) {
     auto core = bus.caches()[i];
@@ -194,6 +199,7 @@ int main(int argc, char** argv) {
     std::cout << std::endl;
   }
 
+
   std::cout << std::setw(27) << std::right
             << "Overall Bus Summary:" << std::endl;
 
@@ -202,6 +208,9 @@ int main(int argc, char** argv) {
   std::cout << std::setw(27) << std::right
             << "Total Bus Traffic (Bytes): " << bus.bus_traffic * blocksize
             << std::endl;
+
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+  std::cout << "Total Execution Time: " << duration.count() << " ms" << std::endl;
 
   return EXIT_SUCCESS;
 }

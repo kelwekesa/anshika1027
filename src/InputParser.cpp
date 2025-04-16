@@ -39,4 +39,6 @@ void printHelp() {
             << std::endl;
 
   std::cout << "-h: prints this help" << std::endl;
+
+  std::cout << "\nexample: $ ./L1simulate -t app1 -s 6 -E 2 -b 5 -o logfile.txt`" << std::endl;
 }
